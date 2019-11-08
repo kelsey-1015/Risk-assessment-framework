@@ -4,11 +4,7 @@ import sqlite3
 import scipy.stats as sci
 import ranking
 
-
-
-
 ROUND_DIGIT = 5
-# {1, 3, 8}
 IMPACT_FACTOR = [0, 0.25, 0.5, 0.75, 1]
 NUM_PARAMETERS = 5
 THREAT_DATABASE = 'threats_database.db'
@@ -18,61 +14,8 @@ INCREASE = 3
 EQUAL = 2
 DECREASE = 1
 
-
-
-# TEST
-value_vector_list = [[0, 5, 10],[0, 1, 2], [1, 2, 4], [1, 3, 8]]
-
-
-# impact_factor for test
-# IMPACT_FACTOR = [1]
-
-
-def threatSpace_generation(value_vector):
-    """Generate threat space 0 for all possible combinations in threat space 0
-    INPUT --> value_vector
-    """
-    threatSpace = list(itertools.product(value_vector, repeat=NUM_PARAMETERS))
-    return threatSpace
-
-
-def database_process(threat_database, value_vector, table_name="ThreatDatabase"):
-    """ This function parses the database and generate a nested list for risk parameteres
-    Input:--> threat database
-          --> value_vector: numeric representations of risk values
-          --> table_name
-    Output: --> threatspace: nested lists of risk parameters of all the threats in the database
-    """
-    try:
-        conn = sqlite3.connect(threat_database)
-    except IOError as e:
-        print(e)
-    cur = conn.cursor()
-    cur.execute("SELECT DP, AC, SL, AU, D FROM ThreatDatabase")
-
-    threatSpace = []
-    for row in cur:
-        risk_parameters = parse_row(row, value_vector)
-        # print(risk_parameters)
-        threatSpace.append(risk_parameters)
-    return threatSpace
-
-
-def parse_row(row, value_vector):
-    """This function changes values of [L, M, H] into corresponding values"""
-    DP = row[0]
-    if DP == 'TOP':
-        dp_parameter = value_vector[-1]
-    else:
-        dp_parameter = value_vector[1]
-    risk_parameters = [dp_parameter]
-    # print("One threat")
-    for l in row[1:]:
-        index = POSITION_DIC[l]
-        risk_parameter = value_vector[index]
-        risk_parameters.append(risk_parameter)
-    # print("Before", risk_parameters)
-    return risk_parameters
+value_vector_list = [[0, 5, 10], [0, 1, 2], [1, 2, 4], [1, 3, 8]]
+baseline_value_vector = [0, 5, 10]
 
 
 def box_plot(data_to_plot, x_labels=['0', '0.25', '0.5', '0.75', '1']):
@@ -106,11 +49,59 @@ def bar_plot(data, value_vector, threatSpace):
     plt.show()
 
 
+def threatSpace_generation(value_vector):
+    """Generate threat space 0
+    INPUT --> value_vector
+    OUTPUT --> A nested list, each threat is represented by its corresponding risk parameters
+    """
+    threatSpace = list(itertools.product(value_vector, repeat=NUM_PARAMETERS))
+    return threatSpace
+
+
+def database_process(threat_database, value_vector, table_name="ThreatDatabase"):
+    """ Usage: Generate threat space 1
+    Input:--> threat database
+          --> value_vector
+          --> table_name
+    Output: --> A nested list, each threat is represented by its corresponding risk parameters
+    """
+    try:
+        conn = sqlite3.connect(threat_database)
+    except IOError as e:
+        print(e)
+    cur = conn.cursor()
+    cur.execute("SELECT DP, AC, SL, AU, D FROM ThreatDatabase")
+
+    threatSpace = []
+    for row in cur:
+        risk_parameters = parse_row(row, value_vector)
+        # print(risk_parameters)
+        threatSpace.append(risk_parameters)
+    return threatSpace
+
+
+def parse_row(row, value_vector):
+    """ Usage: Generate threat space
+    This function changes values of [L, M, H] into corresponding values"""
+    DP = row[0]
+    if DP == 'TOP':
+        dp_parameter = value_vector[-1]
+    else:
+        dp_parameter = value_vector[1]
+    risk_parameters = [dp_parameter]
+    for l in row[1:]:
+        index = POSITION_DIC[l]
+        risk_parameter = value_vector[index]
+        risk_parameters.append(risk_parameter)
+    return risk_parameters
+
+
 def risk_value_calculation(likelyhoodVector, impact=1):
 
-    """ Input: --> likelyhoodVector: [DP, AC, SL, AU, D]
-               --> impact factor
-        Output:--> risk value per threat
+    """ Usage: Calculate the risk value of single threat
+        Input: --> likelyhoodVector: [DP, AC, SL, AU, D]
+               --> impact factor: a scalar value indicating the impact factor; set default as 1
+        Output:--> risk value per threat, round to a fixed digits
                 """
 
     likelyhood = float(sum(list(likelyhoodVector)) / len(likelyhoodVector))
@@ -119,19 +110,23 @@ def risk_value_calculation(likelyhoodVector, impact=1):
     return riskValue
 
 
-def risk_ratio_ranking(threatSpace):
-    """Rank the all the threats in the threatSpace according to its risk ratio
-    Input: Threat Space: a nested list of risk parameters
-    Output: risk_values_dict: a dictionary [threat index: risk values]
-            threat_index_rank_dict: a dictionary [threat index: rank]"""
+def rv_rr_ranking_dict_generation(threatSpace):
+
+    """Usage: Generate various dictionaries regarding to variables as rank, risk values, risk ratios
+    Input:  --> Threat Space: a nested list
+    Output: --> risk_values_dict: a dictionary [threat index: risk values]
+            --> rank_dict: a dictionary [threat index: rank]"""
 
     threat_index = range(len(threatSpace))
+    # threatSpace_dict: [threat index: risk parameter vectors]
     threatSpace_dict = dict(zip(threat_index, threatSpace))
-    # print(threatSpace_dict)
-
+    # risk_values_dict: [threat index: risk value]
     risk_values_dict = dict()
+    # rv_ranking_dict: [risk values: ranking of the threat according to risk values]
     rv_ranking_dict = dict()
-    threat_index_rank_dict = dict()
+    # threat_index_rank: [threat index: ranking of the threat according to risk values]
+    rank_dict = dict()
+    # risk_ratio_dict: [threat index: risk ratio]
     risk_ratio_dict = dict()
 
     for threat_index, vector in threatSpace_dict.items():
@@ -148,8 +143,6 @@ def risk_ratio_ranking(threatSpace):
 
     # print("risk_ratio_dict:", risk_ratio_dict)
 
-
-    # Try HERE
     risk_values = list(risk_values_dict.values())
     risk_values.sort(reverse=True)
 
@@ -164,25 +157,155 @@ def risk_ratio_ranking(threatSpace):
 
     for threat_index, risk_value in risk_values_dict.items():
         rank =rv_ranking_dict[risk_value]
-        threat_index_rank_dict[threat_index] = rank
+        rank_dict[threat_index] = rank
 
-    # print("threat_index_rank: ", threat_index_rank_dict)
-
-    return risk_ratio_dict, threat_index_rank_dict
+    return risk_ratio_dict, rank_dict
 
 
-    # risk_sum = sum(risk_values_dict.values())
+def pairwise_ranking(rank):
+    """ Usage: For calculating rank correlations
+        Calculate the ranking relationships of two positions for all possible position combinations
+    --> INPUT: a list of ranking positions of all threats from T0 to TN; The order is very important
+    --> OUTPUT: A dictionary of pair-wise relationships. Key: position pair (threat pair); Value: whether the rankings
+    of the position is DECREASE, INCREASE or EQUAL"""
 
-    # if sum(risk_ratios) != 1:
-    #     raise ValueError
+    pairwise_ranking = dict()
+    for index_pair in itertools.combinations(range(len(rank)), 2):
+        stat = 0
+        i = index_pair[0]
+        j = index_pair[1]
+        if rank[i] > rank[j]:
+            stat = DECREASE
+        elif rank[i] == rank[j]:
+            stat = EQUAL
+        elif rank[i] < rank[j]:
+            stat = INCREASE
+        pairwise_ranking[str(index_pair)] = stat
 
-    # risk_ratios.sort(reverse=True)
-    # risk_ratios_rankings = list(ranking.Ranking(risk_ratios))
-    # print("ratio ranking:", risk_ratios_rankings)
-    # for individual_ranking in risk_ratios_rankings:
-    #     ranking_dict[individual_ranking[1]] = individual_ranking[0]
-    # print(ranking_dict)
-    # # print("length:", len(ranking_dict))
+    return pairwise_ranking
+
+
+def pair_dic_comparison(pairwise_1, pairwise_2, classic_mode=True):
+    """ Usage: For calculating rank correlations
+        Calculate the coordantant number and disordant numbers of two rankings
+        INPUT: --> pairwise_1/pairwise_2: A dictionary. Keys are pairs and values are the corresponding relationships. [IN, DE, EQ]
+               --> Mode: [Classic] --> Equal are traded as different orders from INCREASE or DECREASE
+                   [GENERAL]--> EQUAL are traded as same orders from INCREASE or DECREASE
+        OUTPUT: corder_num: Number of conordantant pairs of two rankings
+                disorder_num: Number of disorder pairs of two rankings
+    """
+
+    if len(pairwise_1) == len(pairwise_2):
+        n = len(pairwise_1)
+    else:
+        print("Error: the length of two rankings must be identical!")
+        return -1
+
+    corder_num = 0
+    disorder_num = 0
+
+    # classic_mode: EQUAL is traded as a different order
+    if classic_mode:
+        for k, v in pairwise_1.items():
+            if v == pairwise_2[k]:
+                corder_num += 1
+            else:
+                disorder_num += 1
+    else:
+        # print("Non classic mode")
+        for k, v in pairwise_1.items():
+            if v == 2 or pairwise_2[k] == 2:
+                corder_num += 1
+            elif v == pairwise_2[k]:
+                corder_num += 1
+            else:
+                disorder_num += 1
+
+    if corder_num + disorder_num != n:
+        raise ValueError
+
+    return corder_num, disorder_num
+
+
+def KendallTau(rank_1, rank_2):
+    """This function calculates the rank correlation parameter Kendalls'Tau
+       INPUT: rank_1/rank_2: a list of ranking positions of all threats from T0 to TN; The order is very important
+       OUTPUT: Rank correlation -- KendallTau"""
+
+    if len(rank_1) != len(rank_2):
+        print("Error: the length of two rankings must be identical!")
+        return -1
+
+    pairwise_1 = pairwise_ranking(rank_1)
+    pairwise_2 = pairwise_ranking(rank_2)
+
+    pair_num = len(pairwise_1)
+
+    corder_num, disorder_num = pair_dic_comparison(pairwise_1, pairwise_2, False)
+
+    KendallTau = (corder_num - disorder_num)/pair_num
+    return KendallTau
+
+
+def rank_correlation(value_vector_list, threatSpace0, baseline=baseline_value_vector):
+    """ Usage: Calculate the ranking variance under different value_vectors
+        INPUT: --> value_vector_list: a list of two different value vectors
+               --> threatSpace0: A boolean variable: whether the threat space is T0
+    """
+    rank_list = list()
+
+    for value_vector in value_vector_list:
+        if not threatSpace0:
+            threatSpace = database_process(THREAT_DATABASE, value_vector)
+        else:
+            threatSpace = threatSpace_generation(value_vector)
+
+        rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+        # print("rv_dict:", rv_dict)
+        # print("threat_rank_dict:", threat_rank_dict)
+        rank = list(threat_rank_dict.values())
+        rank_list.append(rank)
+    # print("Rank_list:", rank_list)
+    # rank_1 serves as the bench mark with value_vector = [0, 5, 10]
+    tau_list = list()
+
+    for rank in rank_list:
+        tau = KendallTau(baseline, rank)
+        tau_list.append(tau)
+    print(tau_list)
+    return tau_list
+
+
+def NMSE(value_vector_list, threatSpace0):
+    """Calculate the normalized mean squared error of two sets of risk values
+        --> INPUT: a list of two different value vectors
+        --> A boolean variable: whether the threatspace is T0"""
+    rv_list = list()
+    for value_vector in value_vector_list:
+        if not threatSpace0:
+            threatSpace = database_process(THREAT_DATABASE, value_vector)
+        else:
+            threatSpace = threatSpace_generation(value_vector)
+
+        rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+        rv = list(rv_dict.values())
+        rv_list.append(rv)
+
+    normalized_square_error_list = list()
+
+    rv_0 = rv_list[0]
+    for rv in rv_list:
+        rv_num = len(rv_0)
+
+        rv_0_average = sum(rv_0)/rv_num
+        rv_average = sum(rv)/rv_num
+
+        square_error_list = [(v1 - v2) ** 2 /(rv_average*rv_0_average)for v1, v2 in zip(rv_0, rv)]
+
+        normalized_square_error = sum(square_error_list)/rv_num
+        normalized_square_error_list.append(normalized_square_error)
+
+    return normalized_square_error_list
 
 
 def Granularity(threatSpace):
@@ -229,150 +352,6 @@ def Granularity_comparison(delta_list=range(1, 1000)):
         identical_flag = all(x == gradularity_list[0] for x in gradularity_list)
 
     return gradularity_comparison, identical_flag
-
-
-def pairwise_ranking(rank):
-    """This function calculates the pair-wise relationships of a rank
-    --> INPUT: a list of ranking positions of all threats from T0 to TN; The order is very important
-    --> OUTPUT: A dictionary of pair-wise relationships. Key: position pair (threat pair); Value: whether the rankings
-    of the position is DECREASE, INCREASE or EQUAL"""
-
-    pairwise_ranking = dict()
-    for index_pair in itertools.combinations(range(len(rank)), 2):
-        # print(index_pair)
-        stat = 0
-        i = index_pair[0]
-        j = index_pair[1]
-        if rank[i] > rank[j]:
-            stat = DECREASE
-        elif rank[i] == rank[j]:
-            stat = EQUAL
-        elif rank[i] < rank[j]:
-            stat = INCREASE
-        pairwise_ranking[str(index_pair)] = stat
-
-    return pairwise_ranking
-
-
-def pair_dic_comparison(pairwise_1, pairwise_2, classic_mode=True):
-    """ Got the coordantant number and disordant numbers of two rankings
-    INPUT: pairwise_1: A dictionary. Keys are pairs and values are the corresponding relationships. [IN, DE, EQ]
-           Mode: [Classic] --> Equal are traded as different orders from INCREASE or DECREASE
-                 [GENERAL]--> EQUAL are traded as same orders from INCREASE or DECREASE
-    """
-
-    if len(pairwise_1) == len(pairwise_2):
-        n = len(pairwise_1)
-    else:
-        print("Error: the length of two rankings must be identical!")
-        return -1
-
-    corder_num = 0
-    disorder_num = 0
-
-    # classic_mode: EQUAL is traded as a different order
-    if classic_mode:
-        for k, v in pairwise_1.items():
-            if v == pairwise_2[k]:
-                corder_num += 1
-            else:
-                disorder_num += 1
-    else:
-        # print("Non classic mode")
-        for k, v in pairwise_1.items():
-            if v == 2 or pairwise_2[k] == 2:
-                corder_num += 1
-            elif v == pairwise_2[k]:
-                corder_num += 1
-            else:
-                disorder_num += 1
-
-    if corder_num + disorder_num != n:
-        raise ValueError
-
-    return corder_num, disorder_num
-
-
-def KendallTau(rank_1, rank_2):
-    """This function calculates the rank correlations according to Kendalls'Tau """
-
-    if len(rank_1) != len(rank_2):
-        print("Error: the length of two rankings must be identical!")
-        return -1
-
-    pairwise_1 = pairwise_ranking(rank_1)
-    pairwise_2 = pairwise_ranking(rank_2)
-
-    pair_num = len(pairwise_1)
-
-    corder_num, disorder_num = pair_dic_comparison(pairwise_1, pairwise_2, False)
-
-    KendallTau = (corder_num - disorder_num)/pair_num
-
-    print("Disorder_num:", disorder_num)
-
-    return KendallTau
-
-
-def rank_correlation(value_vector_list, threatSpace0):
-    """Calculate the ranking variance under different value_vectors
-    --> INPUT: a list of two different value vectors
-        ---> A boolean variable: whether the threatspace is T0
-    """
-    rank_list = list()
-
-    for value_vector in value_vector_list:
-        if not threatSpace0:
-            threatSpace = database_process(THREAT_DATABASE, value_vector)
-        else:
-            threatSpace = threatSpace_generation(value_vector)
-
-        rv_dict, threat_rank_dict = risk_ratio_ranking(threatSpace)
-        # print("rv_dict:", rv_dict)
-        # print("threat_rank_dict:", threat_rank_dict)
-        rank = list(threat_rank_dict.values())
-        rank_list.append(rank)
-    # print("Rank_list:", rank_list)
-    # rank_1 serves as the bench mark with value_vector = [0, 5, 10]
-    tau_list = list()
-    rank_0 = rank_list[0]
-    for rank in rank_list:
-        tau = KendallTau(rank_0, rank)
-        tau_list.append(tau)
-    print(tau_list)
-    return tau_list
-
-
-def NMSE(value_vector_list, threatSpace0):
-    """Calculate the normalized mean squared error of two sets of risk values
-        --> INPUT: a list of two different value vectors
-        --> A boolean variable: whether the threatspace is T0"""
-    rv_list = list()
-    for value_vector in value_vector_list:
-        if not threatSpace0:
-            threatSpace = database_process(THREAT_DATABASE, value_vector)
-        else:
-            threatSpace = threatSpace_generation(value_vector)
-
-        rv_dict, threat_rank_dict = risk_ratio_ranking(threatSpace)
-        rv = list(rv_dict.values())
-        rv_list.append(rv)
-
-    normalized_square_error_list = list()
-
-    rv_0 = rv_list[0]
-    for rv in rv_list:
-        rv_num = len(rv_0)
-
-        rv_0_average = sum(rv_0)/rv_num
-        rv_average = sum(rv)/rv_num
-
-        square_error_list = [(v1 - v2) ** 2 /(rv_average*rv_0_average)for v1, v2 in zip(rv_0, rv)]
-
-        normalized_square_error = sum(square_error_list)/rv_num
-        normalized_square_error_list.append(normalized_square_error)
-
-    return normalized_square_error_list
 
 
 def granularity_gain(value_vector_list, threatSpace0):
