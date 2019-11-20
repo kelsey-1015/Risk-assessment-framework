@@ -14,7 +14,7 @@ INCREASE = 3
 EQUAL = 2
 DECREASE = 1
 
-value_vector_list = [[0, 5, 10], [0, 1, 2], [1, 2, 4], [1, 3, 8]]
+value_vector_list = [[0, 1, 2], [1, 2, 4], [1, 3, 8]]
 baseline_value_vector = [0, 5, 10]
 
 
@@ -114,7 +114,7 @@ def rv_rr_ranking_dict_generation(threatSpace):
 
     """Usage: Generate various dictionaries regarding to variables as rank, risk values, risk ratios
     Input:  --> Threat Space: a nested list
-    Output: --> risk_values_dict: a dictionary [threat index: risk values]
+    Output: --> risk_ratio_dict: a dictionary [threat index: risk ratios]
             --> rank_dict: a dictionary [threat index: rank]"""
 
     threat_index = range(len(threatSpace))
@@ -249,63 +249,214 @@ def KendallTau(rank_1, rank_2):
 
 def rank_correlation(value_vector_list, threatSpace0, baseline=baseline_value_vector):
     """ Usage: Calculate the ranking variance under different value_vectors
-        INPUT: --> value_vector_list: a list of two different value vectors
+        INPUT: --> value_vector_list: a list of two different value vector;
+                   input "ALL" if you want to loop over all possible combinations
                --> threatSpace0: A boolean variable: whether the threat space is T0
     """
-    rank_list = list()
+    vv_tau_dict = dict()
 
-    for value_vector in value_vector_list:
-        if not threatSpace0:
-            threatSpace = database_process(THREAT_DATABASE, value_vector)
-        else:
-            threatSpace = threatSpace_generation(value_vector)
+    # Generate the rank list for base line vector
+    threatSpace = database_process(THREAT_DATABASE, baseline)
+    bl_rv_dict, bl_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+    baseline_rank = list(bl_rank_dict.values())
 
-        rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
-        # print("rv_dict:", rv_dict)
-        # print("threat_rank_dict:", threat_rank_dict)
-        rank = list(threat_rank_dict.values())
-        rank_list.append(rank)
-    # print("Rank_list:", rank_list)
-    # rank_1 serves as the bench mark with value_vector = [0, 5, 10]
-    tau_list = list()
+    # if we loop over all possible combinations of value vectors within a certain range
+    if value_vector_list == "ALL":
+        value_vector_list_all = list(itertools.combinations(range(11), 3))
+        for value_vector in value_vector_list_all:
+            value_vector = list(value_vector)
+            # check if the condition [x1< x2 < x3] satisfies
+            if min(value_vector) != value_vector[0] or max(value_vector) != value_vector[-1]:
+                raise ValueError
+            else:
+                if value_vector == baseline:
+                    continue
+                else:
+                    if not threatSpace0:
+                        threatSpace = database_process(THREAT_DATABASE, value_vector)
+                    else:
+                        threatSpace = threatSpace_generation(value_vector)
+                    rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+                    rank = list(threat_rank_dict.values())
+                    tau = KendallTau(baseline_rank, rank)
+                    vv_tau_dict[str(value_vector)] = tau
 
-    for rank in rank_list:
-        tau = KendallTau(baseline, rank)
-        tau_list.append(tau)
-    print(tau_list)
-    return tau_list
+
+    # for a selected list of value vectors
+    else:
+        for value_vector in value_vector_list:
+            if not threatSpace0:
+                threatSpace = database_process(THREAT_DATABASE, value_vector)
+            else:
+                threatSpace = threatSpace_generation(value_vector)
+
+            rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+            rank = list(threat_rank_dict.values())
+            tau = KendallTau(baseline_rank, rank)
+            vv_tau_dict[str(value_vector)] = tau
+
+    return vv_tau_dict
 
 
-def NMSE(value_vector_list, threatSpace0):
+def granularity_gain(value_vector_list, threatSpace0, baseline=baseline_value_vector):
+    """ Usage: Calculate the granularity gain under different value_vectors
+            INPUT:  --> value_vector_list: a list of two different value vector;
+                       input "ALL" if you want to loop over all possible combinations
+                    --> threatSpace0: A boolean variable: whether the threat space is T0
+            OUTPUT: --> vv_granularity_dict: A dictionary [value vector: granularity]
+                    --> vv_granularityGain_dict: A dictionary [value vector: granularity_gain]
+        """
+    vv_granularityGain_dict = dict()
+    vv_granularity_dict = dict()
+
+    # calculate the granularity fo baseline vector
+    threatSpace = database_process(THREAT_DATABASE, baseline)
+    _, granularity_baseline = Granularity(threatSpace)
+    print(granularity_baseline)
+
+    if value_vector_list == "ALL":
+        value_vector_list_all = list(itertools.combinations(range(11), 3))
+        for value_vector in value_vector_list_all:
+            value_vector = list(value_vector)
+            # check if the condition [x1< x2 < x3] satisfies
+            if min(value_vector) != value_vector[0] or max(value_vector) != value_vector[-1]:
+                raise ValueError
+            else:
+                if value_vector == baseline:
+                    continue
+                else:
+                    if not threatSpace0:
+                        threatSpace = database_process(THREAT_DATABASE, value_vector)
+                    else:
+                        threatSpace = threatSpace_generation(value_vector)
+
+                    _, granularity = Granularity(threatSpace)
+                    vv_granularity_dict[str(value_vector)] = granularity
+                    granularityGain = granularity/granularity_baseline
+                    vv_granularityGain_dict[str(value_vector)] = granularityGain
+
+    # for a selected list of value vectors
+    else:
+        for value_vector in value_vector_list:
+            if not threatSpace0:
+                threatSpace = database_process(THREAT_DATABASE, value_vector)
+            else:
+                threatSpace = threatSpace_generation(value_vector)
+            _, granularity = Granularity(threatSpace)
+            granularityGain = granularity / granularity_baseline
+            vv_granularity_dict[str(value_vector)] = granularity
+            vv_granularityGain_dict[str(value_vector)] = granularityGain
+
+    return vv_granularity_dict, vv_granularityGain_dict
+
+
+def NMSE(value_vector_list, threatSpace0, baseline=baseline_value_vector):
+
     """Calculate the normalized mean squared error of two sets of risk values
         --> INPUT: a list of two different value vectors
         --> A boolean variable: whether the threatspace is T0"""
     rv_list = list()
-    for value_vector in value_vector_list:
-        if not threatSpace0:
-            threatSpace = database_process(THREAT_DATABASE, value_vector)
-        else:
-            threatSpace = threatSpace_generation(value_vector)
+    vv_nmse_dict = dict()
 
-        rv_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
-        rv = list(rv_dict.values())
-        rv_list.append(rv)
+    # generate the risk ratio lists for baseline value vector, number of rr, and rr_mean
+    threatSpace = database_process(THREAT_DATABASE, baseline)
+    bl_rr_dict, bl_rank_dict =rv_rr_ranking_dict_generation(threatSpace)
+    rr_baseline = list(bl_rr_dict.values())
+    # print(rr_baseline)
 
-    normalized_square_error_list = list()
+    if value_vector_list == "ALL":
+        value_vector_list_all = list(itertools.combinations(range(11), 3))
+        for value_vector in value_vector_list_all:
+            value_vector = list(value_vector)
+            # check if the condition [x1< x2 < x3] satisfies
+            if min(value_vector) != value_vector[0] or max(value_vector) != value_vector[-1]:
+                raise ValueError
+            else:
+                if value_vector == baseline:
+                    continue
+                else:
+                    if not threatSpace0:
+                        threatSpace = database_process(THREAT_DATABASE, value_vector)
+                    else:
+                        threatSpace = threatSpace_generation(value_vector)
 
-    rv_0 = rv_list[0]
-    for rv in rv_list:
-        rv_num = len(rv_0)
+                    rr_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+                    rr = list(rr_dict.values())
 
-        rv_0_average = sum(rv_0)/rv_num
-        rv_average = sum(rv)/rv_num
+                    nmse = nmse_individual(rr_baseline, rr)
+                    vv_nmse_dict[str(value_vector)] = nmse
 
-        square_error_list = [(v1 - v2) ** 2 /(rv_average*rv_0_average)for v1, v2 in zip(rv_0, rv)]
+    # for a selected list of value vectors
+    else:
+        for value_vector in value_vector_list:
+            if not threatSpace0:
+                threatSpace = database_process(THREAT_DATABASE, value_vector)
+            else:
+                threatSpace = threatSpace_generation(value_vector)
 
-        normalized_square_error = sum(square_error_list)/rv_num
-        normalized_square_error_list.append(normalized_square_error)
+            rr_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
+            rr = list(rr_dict.values())
 
-    return normalized_square_error_list
+            nmse = nmse_individual(rr_baseline, rr)
+            vv_nmse_dict[str(value_vector)] = nmse
+
+    return vv_nmse_dict
+
+
+def statistics(value_vector_list, threatSpace0):
+    vv_average_dict = dict()
+    vv_mad_dict = dict()
+    if value_vector_list == "ALL":
+        value_vector_list_all = list(itertools.combinations(range(11), 3))
+        for value_vector in value_vector_list_all:
+            value_vector = list(value_vector)
+            # check if the condition [x1< x2 < x3] satisfies
+            if min(value_vector) != value_vector[0] or max(value_vector) != value_vector[-1]:
+                raise ValueError
+            else:
+                if not threatSpace0:
+                    threatSpace = database_process(THREAT_DATABASE, value_vector)
+                else:
+                    threatSpace = threatSpace_generation(value_vector)
+
+                rr_dict, _ = rv_rr_ranking_dict_generation(threatSpace)
+                rr_list = list(rr_dict.values())
+                average, mad = statistic_property_individual(rr_list)
+                vv_average_dict[str(value_vector)] = average
+                vv_mad_dict[str(value_vector)] = mad
+    # for a selected list of value vectors
+    else:
+        for value_vector in value_vector_list:
+            if not threatSpace0:
+                threatSpace = database_process(THREAT_DATABASE, value_vector)
+            else:
+                threatSpace = threatSpace_generation(value_vector)
+            rr_dict, _ = rv_rr_ranking_dict_generation(threatSpace)
+            rr_list = list(rr_dict.values())
+            average, mad = statistic_property_individual(rr_list)
+            vv_average_dict[str(value_vector)] = average
+            vv_mad_dict[str(value_vector)] = mad
+
+    return vv_average_dict, vv_mad_dict
+
+
+def nmse_individual(list1, list2):
+    """ Calculate the nmse for two inputs: list1 and list2"""
+    num_1 = len(list1)
+    num_2 = len(list2)
+
+    if num_1 != num_2:
+        raise ValueError
+    else:
+        mean_1 = sum(list1)/num_1
+        mean_2 = sum(list2)/num_2
+
+        square_error_list = [(v1 - v2) ** 2 / (mean_1 * mean_2) for v1, v2 in zip(list1, list2)]
+        if len(square_error_list) != num_1:
+            print("There is sth wrong in function nmse")
+        nmse = sum(square_error_list)/len(square_error_list)
+
+    return nmse
 
 
 def Granularity(threatSpace):
@@ -354,25 +505,24 @@ def Granularity_comparison(delta_list=range(1, 1000)):
     return gradularity_comparison, identical_flag
 
 
-def granularity_gain(value_vector_list, threatSpace0):
-    granularity_list = list()
-    for value_vector in value_vector_list:
-        if not threatSpace0:
-            threatSpace = database_process(THREAT_DATABASE, value_vector)
-        else:
-            threatSpace = threatSpace_generation(value_vector)
-        _, granularity = Granularity(threatSpace)
-        granularity_list.append(granularity)
-    granularity_gain_list = [granu/granularity_list[0] for granu in granularity_list]
-    # print("gain", granularity_gain_list)
-    return granularity_list, granularity_gain_list
+def statistic_property_individual(list):
+    """Calculate the average and average absolute deviation of input list """
+    average = sum(list)/len(list)
+    variance_vector = [abs(i - average) for i in list]
+    mad = sum(variance_vector)/len(variance_vector)
+    return average, mad
 
 
-def plot_experiment_5(data_to_plot, x_labels=["v1", "v2", "v3", "v4"]):
+
+def plot_experiment_1(data_to_plot, x_label_len):
+    x_labels = list()
+    for i in range(1, x_label_len + 1):
+        x_label = "V{}_Vb".format(str(i))
+        x_labels.append(x_label)
 
     y_pos = range(len(data_to_plot))
     y_value = data_to_plot
-    title = "NMSE of risk ratios with various for value vectors for threatSpace T1"
+    title = "NMSE with various value vectors in threatSpace T1"
     plt.bar(y_pos, y_value, align='center', width=0.3, color=(0.2, 0.6, 0.9))
     plt.xticks(y_pos, x_labels)
     plt.xlabel("value vector")
@@ -382,19 +532,92 @@ def plot_experiment_5(data_to_plot, x_labels=["v1", "v2", "v3", "v4"]):
     plt.show()
 
 
+def plot_experiment_2(data_to_plot):
+    title = "NMSE with all possible value vectors within range [0, 10] in T1"
+    x_pos = range(len(data_to_plot))
+    y_value = data_to_plot
+    plt.title(title)
+
+    ax1 = plt.subplot("211")
+    ax1.scatter(x_pos, y_value, s=50, marker='+', color=(0.2, 0.6, 0.9))
+    ax1.set_xlabel("value vector")
+    ax1.set_ylabel("Kendall's Tau")
+    ax1.grid()
+
+    ax2 = plt.subplot("212")
+    # ax2.title.set_text("Histogram")
+    ax2.hist(y_value, bins='auto', rwidth=0.75, color=(0.2, 0.6, 0.9), orientation="horizontal")
+    ax2.set_xlabel("Counts")
+    ax2.set_ylabel("Kendall's Tau")
+    ax2.grid()
+    plt.show()
+
+
+def plot_experiment_3(data_to_plot_dict):
+    data_to_plot = list(data_to_plot_dict.values())
+    x_pos = range(len(data_to_plot))
+    y_value = data_to_plot
+
+    inverse = [(value, key) for key, value in data_to_plot_dict.items()]
+    vv_max_mad = max(inverse)[1]
+    vv_min_mad = min(inverse)[1]
+    s_max = "value vector {} contributes to maximum deviation".format(str(vv_max_mad))
+    s_min = "value vector {} contributes to minimum deviation".format(str(vv_min_mad))
+
+
+    plt.scatter(x_pos, y_value, s=50, marker='+', color=(0.2, 0.6, 0.9))
+    plt.xlabel("value vectors")
+    plt.ylabel("mean absolute deviations of risk ratios")
+    plt.text(13, 0.013, s_min)
+    plt.text(13, 0.015, s_max)
+    plt.grid()
+    plt.show()
+
+
+
+def pre_plot_gain_correlation(gain_dict, correlation_dict, y_label):
+    """ This function servers for preprocessing the data before plot"""
+    vv_list1 = list(gain_dict.keys())
+    print(vv_list1)
+
+    vv_list2 = list(correlation_dict.keys())
+    print(vv_list2)
+
+    if vv_list1 == vv_list2:
+        gain_list = list(gain_dict.values())
+        correlation_list = list(correlation_dict.values())
+    print(len(gain_list), len(correlation_list))
+    plt.scatter(gain_list, correlation_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
+    plt.xlabel("Granularity Gain")
+    plt.ylabel(y_label)
+    plt.text(1.3, 0.06, "base vector = [0, 5, 10]")
+    plt.grid()
+    plt.show()
+
+
 def main():
-
-
-    # granularity_list, granularity_gain_list = granularity_gain(value_vector_list, False)
+    # granularity_dict, granularity_gain_dict = granularity_gain(value_vector_list, False)
+    # granularity_gain_list = list(granularity_gain_dict.values())
     # plot_experiment_5(granularity_gain_list)
 
-    # tau_list =rank_correlation(value_vector_list, False)
-    # plot_experiment_5(tau_list)
+    # tau_dict =rank_correlation("ALL", False)
+    # tau_list = list(tau_dict.values())
+    # plot_experiment_5_2(tau_list)
 
+    # NMSE_dict =NMSE("ALL", False)
+    # NMSE_list = list(NMSE_dict.values())
+    # plot_experiment_5_2(NMSE_list)
 
-    nmse_list = NMSE(value_vector_list, False)
-    plot_experiment_5(nmse_list)
+    # granularity_dict, granularity_gain_dict = granularity_gain("ALL", False)
+    # NMSE_dict =NMSE("ALL", False)
 
+    # tau_dict =rank_correlation("ALL", False)
+    # print("Granularity gain:", granularity_gain_dict)
+    # print("Tau:", tau_dict)
+    # pre_plot_gain_correlation(granularity_gain_dict, NMSE_dict, "NMSE")
+
+    vv_average, vv_mad = statistics("ALL", False)
+    plot_experiment_3(vv_mad)
 
 if __name__ == "__main__":
     main()
