@@ -1,8 +1,8 @@
 import itertools
 import matplotlib.pyplot as plt
 import sqlite3
-import scipy.stats as sci
 import ranking
+import plot
 
 ROUND_DIGIT = 5
 IMPACT_FACTOR = [0, 0.25, 0.5, 0.75, 1]
@@ -14,39 +14,18 @@ INCREASE = 3
 EQUAL = 2
 DECREASE = 1
 
+PARAMETER_LABELS = ['granularity gain', 'kendall tau', 'NMSE', 'maximum ratio difference']
+
+plot_parameter = PARAMETER_LABELS[-1]
+threatspace = 1
+
+
+scatter_plot_title = "{} with various value vectors in threatSpace T_{}".format(plot_parameter, str(threatspace))
+hist_plot_title = "Histogram of {} with various value vectors in threatSpace T_{}".format(plot_parameter, str(threatspace))
+
+
 value_vector_list = [[0, 1, 2], [1, 2, 4], [1, 3, 8]]
 baseline_value_vector = [0, 5, 10]
-
-
-def box_plot(data_to_plot, x_labels=['0', '0.25', '0.5', '0.75', '1']):
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    ax.set_xticklabels(x_labels)
-    ax.set_title('Parameter_Scales = [0, 15, 30]')
-    ax.set_xlabel('Impact Factor')
-    ax.set_ylabel('Risk Value')
-    bp = ax.boxplot(data_to_plot)
-    plt.show()
-
-
-def bar_plot(data, value_vector, threatSpace):
-    """This function takes the distribution dictionary as an input"""
-    title = "Risk values with value vector = {}, threat space {}".format(str(value_vector), threatSpace)
-    risk_values = list(data.keys())
-    y_pos = range(len(risk_values))
-    y_value = list(data.values())
-    x_label = []
-    for x_label_in in risk_values:
-        if x_label_in - int(x_label_in) == 0:
-            x_label_in = int(x_label_in)
-        x_label_in = str(x_label_in)
-        x_label.append(x_label_in)
-    plt.bar(y_pos, y_value, align='center', width=0.5)
-    plt.xticks(y_pos, x_label)
-    plt.xlabel("Unique risk value")
-    plt.ylabel("Count")
-    plt.title(title)
-    plt.show()
 
 
 def threatSpace_generation(value_vector):
@@ -255,8 +234,12 @@ def rank_correlation(value_vector_list, threatSpace0, baseline=baseline_value_ve
     """
     vv_tau_dict = dict()
 
-    # Generate the rank list for base line vector
-    threatSpace = database_process(THREAT_DATABASE, baseline)
+    # Generate the rank list for base line vector for threatspace 0 and threatspace 1 respectively
+    if not threatSpace0:
+        threatSpace = database_process(THREAT_DATABASE, baseline)
+    else:
+        threatSpace = threatSpace_generation(baseline)
+
     bl_rv_dict, bl_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
     baseline_rank = list(bl_rank_dict.values())
 
@@ -309,8 +292,12 @@ def granularity_gain(value_vector_list, threatSpace0, baseline=baseline_value_ve
     vv_granularityGain_dict = dict()
     vv_granularity_dict = dict()
 
-    # calculate the granularity fo baseline vector
-    threatSpace = database_process(THREAT_DATABASE, baseline)
+    # Generate the rank list for base line vector for threatspace 0 and threatspace 1 respectively
+    if not threatSpace0:
+        threatSpace = database_process(THREAT_DATABASE, baseline)
+    else:
+        threatSpace = threatSpace_generation(baseline)
+
     _, granularity_baseline = Granularity(threatSpace)
     print(granularity_baseline)
 
@@ -350,16 +337,21 @@ def granularity_gain(value_vector_list, threatSpace0, baseline=baseline_value_ve
     return vv_granularity_dict, vv_granularityGain_dict
 
 
-def NMSE(value_vector_list, threatSpace0, baseline=baseline_value_vector):
+def rr_analysis(value_vector_list, threatSpace0, baseline=baseline_value_vector):
 
-    """Calculate the normalized mean squared error of two sets of risk values
+    """Calculate the NMSE and max rr difference of two sets of risk values
         --> INPUT: a list of two different value vectors
         --> A boolean variable: whether the threatspace is T0"""
     rv_list = list()
     vv_nmse_dict = dict()
+    vv_maxDiff_dict = dict()
 
     # generate the risk ratio lists for baseline value vector, number of rr, and rr_mean
-    threatSpace = database_process(THREAT_DATABASE, baseline)
+    if not threatSpace0:
+        threatSpace = database_process(THREAT_DATABASE, baseline)
+    else:
+        threatSpace = threatSpace_generation(baseline)
+
     bl_rr_dict, bl_rank_dict =rv_rr_ranking_dict_generation(threatSpace)
     rr_baseline = list(bl_rr_dict.values())
     # print(rr_baseline)
@@ -382,8 +374,9 @@ def NMSE(value_vector_list, threatSpace0, baseline=baseline_value_vector):
 
                     rr_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
                     rr = list(rr_dict.values())
-
+                    max_diff = max_difference(rr_baseline, rr)
                     nmse = nmse_individual(rr_baseline, rr)
+                    vv_maxDiff_dict[str(value_vector)] = max_diff
                     vv_nmse_dict[str(value_vector)] = nmse
 
     # for a selected list of value vectors
@@ -396,11 +389,12 @@ def NMSE(value_vector_list, threatSpace0, baseline=baseline_value_vector):
 
             rr_dict, threat_rank_dict = rv_rr_ranking_dict_generation(threatSpace)
             rr = list(rr_dict.values())
-
+            max_diff = max_difference(rr_baseline, rr)
             nmse = nmse_individual(rr_baseline, rr)
+            vv_maxDiff_dict[str(value_vector)] = max_diff
             vv_nmse_dict[str(value_vector)] = nmse
 
-    return vv_nmse_dict
+    return vv_nmse_dict, vv_maxDiff_dict
 
 
 def statistics(value_vector_list, threatSpace0):
@@ -439,6 +433,17 @@ def statistics(value_vector_list, threatSpace0):
 
     return vv_average_dict, vv_mad_dict
 
+
+def max_difference(list1, list2):
+    """Calculate the maximum ratio of two inputs: list1 and list2"""
+    num_1 = len(list1)
+    num_2 = len(list2)
+
+    if num_1 != num_2:
+        raise ValueError
+    difference_list = [(v1-v2) for v1, v2 in zip(list1, list2)]
+    max_difference_value = max(difference_list)
+    return max_difference_value
 
 def nmse_individual(list1, list2):
     """ Calculate the nmse for two inputs: list1 and list2"""
@@ -513,111 +518,69 @@ def statistic_property_individual(list):
     return average, mad
 
 
+# def pre_plot_gain_correlation(gain_dict, correlation_dict, y_label):
+#     """ This function servers for preprocessing the data before plot"""
+#     vv_list1 = list(gain_dict.keys())
+#     print(vv_list1)
+#
+#     vv_list2 = list(correlation_dict.keys())
+#     print(vv_list2)
+#
+#     if vv_list1 == vv_list2:
+#         gain_list = list(gain_dict.values())
+#         correlation_list = list(correlation_dict.values())
+#     print(len(gain_list), len(correlation_list))
+#     plt.scatter(gain_list, correlation_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
+#     plt.xlabel("Granularity Gain")
+#     plt.ylabel(y_label)
+#     plt.text(1.3, 0.06, "base vector = [0, 5, 10]")
+#     plt.grid()
+#     plt.show()
 
-def plot_experiment_1(data_to_plot, x_label_len):
-    x_labels = list()
-    for i in range(1, x_label_len + 1):
-        x_label = "V{}_Vb".format(str(i))
-        x_labels.append(x_label)
+def gain_correlation_relationships_plot(gg_dict, corr_dict):
+    """ This function plot the relationships of the ranked granularity gain and correllations parameters"""
+    gg_list = []
+    corr_list = []
+    gg_sorted = sorted(gg_dict, key=gg_dict.get, reverse=True)
+    for vv in gg_sorted:
+        gg_list.append(gg_dict[vv])
+        corr_list.append(corr_dict[vv])
 
-    y_pos = range(len(data_to_plot))
-    y_value = data_to_plot
-    title = "NMSE with various value vectors in threatSpace T1"
-    plt.bar(y_pos, y_value, align='center', width=0.3, color=(0.2, 0.6, 0.9))
-    plt.xticks(y_pos, x_labels)
-    plt.xlabel("value vector")
-    plt.ylabel("NMSE")
-    plt.title(title)
-    plt.grid()
-    plt.show()
-
-
-def plot_experiment_2(data_to_plot):
-    title = "NMSE with all possible value vectors within range [0, 10] in T1"
-    x_pos = range(len(data_to_plot))
-    y_value = data_to_plot
-    plt.title(title)
-
-    ax1 = plt.subplot("211")
-    ax1.scatter(x_pos, y_value, s=50, marker='+', color=(0.2, 0.6, 0.9))
-    ax1.set_xlabel("value vector")
-    ax1.set_ylabel("Kendall's Tau")
-    ax1.grid()
-
-    ax2 = plt.subplot("212")
-    # ax2.title.set_text("Histogram")
-    ax2.hist(y_value, bins='auto', rwidth=0.75, color=(0.2, 0.6, 0.9), orientation="horizontal")
-    ax2.set_xlabel("Counts")
-    ax2.set_ylabel("Kendall's Tau")
-    ax2.grid()
-    plt.show()
-
-
-def plot_experiment_3(data_to_plot_dict):
-    data_to_plot = list(data_to_plot_dict.values())
-    x_pos = range(len(data_to_plot))
-    y_value = data_to_plot
-
-    inverse = [(value, key) for key, value in data_to_plot_dict.items()]
-    vv_max_mad = max(inverse)[1]
-    vv_min_mad = min(inverse)[1]
-    s_max = "value vector {} contributes to maximum deviation".format(str(vv_max_mad))
-    s_min = "value vector {} contributes to minimum deviation".format(str(vv_min_mad))
-
-
-    plt.scatter(x_pos, y_value, s=50, marker='+', color=(0.2, 0.6, 0.9))
-    plt.xlabel("value vectors")
-    plt.ylabel("mean absolute deviations of risk ratios")
-    plt.text(13, 0.013, s_min)
-    plt.text(13, 0.015, s_max)
-    plt.grid()
-    plt.show()
-
-
-
-def pre_plot_gain_correlation(gain_dict, correlation_dict, y_label):
-    """ This function servers for preprocessing the data before plot"""
-    vv_list1 = list(gain_dict.keys())
-    print(vv_list1)
-
-    vv_list2 = list(correlation_dict.keys())
-    print(vv_list2)
-
-    if vv_list1 == vv_list2:
-        gain_list = list(gain_dict.values())
-        correlation_list = list(correlation_dict.values())
-    print(len(gain_list), len(correlation_list))
-    plt.scatter(gain_list, correlation_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
-    plt.xlabel("Granularity Gain")
-    plt.ylabel(y_label)
-    plt.text(1.3, 0.06, "base vector = [0, 5, 10]")
-    plt.grid()
+    print("gg_list:", gg_list)
+    print("corr_list", corr_list)
+    plt.scatter(gg_list, corr_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
     plt.show()
 
 
 def main():
-    # granularity_dict, granularity_gain_dict = granularity_gain(value_vector_list, False)
+    # granularity_dict, granularity_gain_dict = granularity_gain("ALL", True)
     # granularity_gain_list = list(granularity_gain_dict.values())
-    # plot_experiment_5(granularity_gain_list)
+    # print(granularity_gain_list)
+    # plot.scatter_plot(granularity_gain_list, scatter_plot_title, plot_parameter)
+    # plot.histogram_plot(granularity_gain_list, hist_plot_title, plot_parameter)
 
-    # tau_dict =rank_correlation("ALL", False)
+    # tau_dict =rank_correlation("ALL", True)
     # tau_list = list(tau_dict.values())
-    # plot_experiment_5_2(tau_list)
+    # print(tau_list)
+    # plot.scatter_plot(tau_list, scatter_plot_title, plot_parameter)
+    # plot.histogram_plot(tau_list, scatter_plot_title, plot_parameter)
 
-    # NMSE_dict =NMSE("ALL", False)
+    NMSE_dict, maxDiff_dict = rr_analysis("ALL", True)
+
+    maxDiff_list = list(maxDiff_dict.values())
+    plot.scatter_plot(maxDiff_list, scatter_plot_title, plot_parameter)
+    plot.histogram_plot(maxDiff_list, scatter_plot_title, plot_parameter)
+
     # NMSE_list = list(NMSE_dict.values())
-    # plot_experiment_5_2(NMSE_list)
+    # plot.scatter_plot(NMSE_list, scatter_plot_title, plot_parameter)
+    # plot.histogram_plot(NMSE_list, scatter_plot_title, plot_parameter)
 
-    # granularity_dict, granularity_gain_dict = granularity_gain("ALL", False)
-    # NMSE_dict =NMSE("ALL", False)
-
-    # tau_dict =rank_correlation("ALL", False)
-    # print("Granularity gain:", granularity_gain_dict)
-    # print("Tau:", tau_dict)
+    # NMSE_dict = NMSE(value_vector_list, False)
+    # gain_correlation_relationships_plot(granularity_gain_dict, NMSE_dict)
     # pre_plot_gain_correlation(granularity_gain_dict, NMSE_dict, "NMSE")
 
-    vv_average, vv_mad = statistics("ALL", False)
-    plot_experiment_3(vv_mad)
+    # vv_average, vv_mad = statistics("ALL", False)
+    # plot.plot_experiment_3(vv_mad)
 
 if __name__ == "__main__":
     main()
