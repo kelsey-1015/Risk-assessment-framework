@@ -298,8 +298,9 @@ def granularity_gain(value_vector_list, threatSpace0, baseline=baseline_value_ve
     else:
         threatSpace = threatSpace_generation(baseline)
 
+
     _, granularity_baseline = Granularity(threatSpace)
-    print(granularity_baseline)
+    # print(granularity_baseline)
 
     if value_vector_list == "ALL":
         value_vector_list_all = list(itertools.combinations(range(11), 3))
@@ -349,8 +350,10 @@ def rr_analysis(value_vector_list, threatSpace0, baseline=baseline_value_vector)
     # generate the risk ratio lists for baseline value vector, number of rr, and rr_mean
     if not threatSpace0:
         threatSpace = database_process(THREAT_DATABASE, baseline)
+        print("DL4LD Database T1 is being generated!")
     else:
         threatSpace = threatSpace_generation(baseline)
+        print("Theoretical Database T0 is being generated!")
 
     bl_rr_dict, bl_rank_dict =rv_rr_ranking_dict_generation(threatSpace)
     rr_baseline = list(bl_rr_dict.values())
@@ -418,6 +421,7 @@ def statistics(value_vector_list, threatSpace0):
                 average, mad = statistic_property_individual(rr_list)
                 vv_average_dict[str(value_vector)] = average
                 vv_mad_dict[str(value_vector)] = mad
+
     # for a selected list of value vectors
     else:
         for value_vector in value_vector_list:
@@ -434,16 +438,25 @@ def statistics(value_vector_list, threatSpace0):
     return vv_average_dict, vv_mad_dict
 
 
-def max_difference(list1, list2):
-    """Calculate the maximum ratio of two inputs: list1 and list2"""
+def max_difference(list1, list2, normalized=True):
+    """Calculate the maximum ratio of two inputs: list1 and list2
+    Input: normalized --> indicate whether we got normalized or absolute value for maximum ratio risk difference"""
     num_1 = len(list1)
     num_2 = len(list2)
-
     if num_1 != num_2:
         raise ValueError
-    difference_list = [(v1-v2) for v1, v2 in zip(list1, list2)]
+
+    if normalized:
+        average_1 = sum(list1)/num_1
+        average_2 = sum(list2)/num_2
+        difference_list = [(v1 - v2)**2/(average_1 * average_2) for v1, v2 in zip(list1, list2)]
+
+    else:
+        difference_list = [(v1 - v2) for v1, v2 in zip(list1, list2)]
+
     max_difference_value = max(difference_list)
     return max_difference_value
+
 
 def nmse_individual(list1, list2):
     """ Calculate the nmse for two inputs: list1 and list2"""
@@ -501,10 +514,8 @@ def Granularity_comparison(delta_list=range(1, 1000)):
         if distribution_tmp:
             print(distribution_values == distribution_tmp)
         distribution_tmp = distribution_values
-        # print("Delta: {}\n".format(delta), gradularity)
         gradularity_comparison[delta] = gradularity
         gradularity_list = list(gradularity_comparison.values())
-        # print(gradularity_list)
         identical_flag = all(x == gradularity_list[0] for x in gradularity_list)
 
     return gradularity_comparison, identical_flag
@@ -518,44 +529,73 @@ def statistic_property_individual(list):
     return average, mad
 
 
-# def pre_plot_gain_correlation(gain_dict, correlation_dict, y_label):
-#     """ This function servers for preprocessing the data before plot"""
-#     vv_list1 = list(gain_dict.keys())
-#     print(vv_list1)
+def gain_correlation_preprocess_plot(gain_dict, correlation_dict, y_lable):
+    """ This function preprocessing the data for box plots the relationships
+    OUTPUT: a dictionary: key --> unique value of granularity gain
+                          value --> a list of corresponding correlation parameters for this gain"""
+    # print("Gain dict:", gain_dict)
+    # print("Correlation dict:",correlation_dict)
+    title = "Relationships between Granularity Gain and {} in Threat Database T_{}".format(y_lable, threatspace)
+    vv_list1 = list(gain_dict.keys())
+    vv_list2 = list(correlation_dict.keys())
+    if vv_list1 == vv_list2:
+        gain_list = list(gain_dict.values())
+        # print("Gain list:", gain_list)
+        # print("Gain list len:", len(gain_list))
+        correlation_list = list(correlation_dict.values())
+    else:
+        raise ValueError
+
+    # Group the original data with unique gain number
+    unique_gain_list = sorted(list(set(gain_list)))
+    print(unique_gain_list)
+    correlation_nested_dict ={}
+    for unique_gain in unique_gain_list:
+        correlation_list =[]
+        for vv, gain in gain_dict.items():
+            if gain == unique_gain:
+                correlation_list.append(correlation_dict[vv])
+                correlation_nested_dict[gain] = correlation_list
+
+
+    data_to_plot = list(correlation_nested_dict.values())
+    x_labels = [str(round(g, 2)) for g in correlation_nested_dict.keys()]
+    # print(data_to_plot)
+    # print(x_labels)
+    # print(len(x_labels))
+    plot.box_plot(data_to_plot, y_lable, title, x_labels)
+
+    # Check if the grouping coding is correct or not
+    # for k, v in gain_dict.items():
+    #     if correlation_dict[k] not in correlation_nested_dict[v]:
+    #         print("Sth wrong")
+    #
+    # num = 0
+    # for k, v in correlation_nested_dict.items():
+    #     num += len(list(v))
+    # print(num == len(gain_list))
+
+    return correlation_nested_dict
+
+# def gain_correlation_relationships_plot(gg_dict, corr_dict):
+#     """ This function plot the relationships of the ranked granularity gain and correllations parameters"""
+#     gg_list = []
+#     corr_list = []
+#     gg_sorted = sorted(gg_dict, key=gg_dict.get, reverse=True)
+#     for vv in gg_sorted:
+#         gg_list.append(gg_dict[vv])
+#         corr_list.append(corr_dict[vv])
 #
-#     vv_list2 = list(correlation_dict.keys())
-#     print(vv_list2)
-#
-#     if vv_list1 == vv_list2:
-#         gain_list = list(gain_dict.values())
-#         correlation_list = list(correlation_dict.values())
-#     print(len(gain_list), len(correlation_list))
-#     plt.scatter(gain_list, correlation_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
-#     plt.xlabel("Granularity Gain")
-#     plt.ylabel(y_label)
-#     plt.text(1.3, 0.06, "base vector = [0, 5, 10]")
-#     plt.grid()
+#     print("gg_list:", gg_list)
+#     print("corr_list", corr_list)
+#     plt.scatter(gg_list, corr_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
 #     plt.show()
-
-def gain_correlation_relationships_plot(gg_dict, corr_dict):
-    """ This function plot the relationships of the ranked granularity gain and correllations parameters"""
-    gg_list = []
-    corr_list = []
-    gg_sorted = sorted(gg_dict, key=gg_dict.get, reverse=True)
-    for vv in gg_sorted:
-        gg_list.append(gg_dict[vv])
-        corr_list.append(corr_dict[vv])
-
-    print("gg_list:", gg_list)
-    print("corr_list", corr_list)
-    plt.scatter(gg_list, corr_list, s=50, marker='+', color=(0.2, 0.6, 0.9))
-    plt.show()
 
 
 def main():
-    # granularity_dict, granularity_gain_dict = granularity_gain("ALL", True)
-    # granularity_gain_list = list(granularity_gain_dict.values())
-    # print(granularity_gain_list)
+    granularity_dict, granularity_gain_dict = granularity_gain("ALL", False)
+    granularity_gain_list = list(granularity_gain_dict.values())
+    print(max(granularity_gain_list))
     # plot.scatter_plot(granularity_gain_list, scatter_plot_title, plot_parameter)
     # plot.histogram_plot(granularity_gain_list, hist_plot_title, plot_parameter)
 
@@ -565,19 +605,21 @@ def main():
     # plot.scatter_plot(tau_list, scatter_plot_title, plot_parameter)
     # plot.histogram_plot(tau_list, scatter_plot_title, plot_parameter)
 
-    NMSE_dict, maxDiff_dict = rr_analysis("ALL", True)
-
-    maxDiff_list = list(maxDiff_dict.values())
-    plot.scatter_plot(maxDiff_list, scatter_plot_title, plot_parameter)
-    plot.histogram_plot(maxDiff_list, scatter_plot_title, plot_parameter)
+    # NMSE_dict, maxDiff_dict = rr_analysis("ALL", False)
+    # maxDiff_list = list(maxDiff_dict.values())
+    # plot.scatter_plot(maxDiff_list, scatter_plot_title, plot_parameter)
+    # plot.histogram_plot(maxDiff_list, scatter_plot_title, plot_parameter)
 
     # NMSE_list = list(NMSE_dict.values())
     # plot.scatter_plot(NMSE_list, scatter_plot_title, plot_parameter)
     # plot.histogram_plot(NMSE_list, scatter_plot_title, plot_parameter)
 
-    # NMSE_dict = NMSE(value_vector_list, False)
-    # gain_correlation_relationships_plot(granularity_gain_dict, NMSE_dict)
-    # pre_plot_gain_correlation(granularity_gain_dict, NMSE_dict, "NMSE")
+    # granularity_dict, granularity_gain_dict = granularity_gain("ALL", True)
+    # NMSE_dict, maxDiff_dict = rr_analysis("ALL", True)
+    # print(maxDiff_dict)
+    # tau_dict = rank_correlation("ALL", True)
+    # print("Granularity Gain_dict", granularity_dict.values())
+    # gain_correlation_preprocess_plot(granularity_gain_dict, NMSE_dict, "NMSE")
 
     # vv_average, vv_mad = statistics("ALL", False)
     # plot.plot_experiment_3(vv_mad)
